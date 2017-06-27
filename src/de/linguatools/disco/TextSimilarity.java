@@ -1,5 +1,5 @@
 /*******************************************************************************
- *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015 Peter Kolb
+ *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2016 Peter Kolb
  *   peter.kolb@linguatools.org
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -19,7 +19,6 @@
 package de.linguatools.disco;
 
 import de.linguatools.disco.DISCO.SimilarityMeasure;
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,7 +27,7 @@ import java.util.logging.Logger;
 
 /*******************************************************************************
  * This class provides methods to compute the semantic similarity between two
- * short pieces of text, i.e. phrases, sentences or paragraphs.
+ * short texts, i.e. phrases, sentences or paragraphs.
  * @author peter
  * @version 2.1
  ******************************************************************************/
@@ -39,13 +38,9 @@ public class TextSimilarity {
      * & De Rijke 2005.
      * @param word a word
      * @param disco
-     * @param N corpus size
-     * @param minFreq lowest word frequency in the word space
-     * @param maxFreq highest word frequency in the word space
-     * @return weight of word (between 0 and 1)
+     *  @return weight of word (between 0 and 1)
      **************************************************************************/
-    private float weight(String word, DISCO disco, long N, int minFreq,
-            int maxFreq){
+    private float weight(String word, DISCO disco){
 
         // read the frequency of the word from the DISCO word space
         int freq = 0;
@@ -58,23 +53,25 @@ public class TextSimilarity {
         // ICFmin = minFreq / N
         // ICFmax = maxFreq / N
         // weight(word) = 1 - ((ICF(word)-ICFmin)/(ICFmax-ICFmin))
-        float icf = (float) freq / N;
-        float icfMin = (float) minFreq / N;
-        float icfMax = (float) maxFreq / N;
+        float icf = (float) freq / disco.getTokenCount();
+        float icfMin = (float) disco.getMinFreq() / disco.getTokenCount();
+        float icfMax = (float) disco.getMaxFreq() / disco.getTokenCount();
         float w = 1 - (icf - icfMin) / (icfMax - icfMin);
         return w;
     }
 
     /***************************************************************************
      * Compute the semantic similarity of words w1 and w2 according to the
-     * DISCO word space indexName.
+     * DISCO word space.
      * @param w1 a word
      * @param w2 another word
      * @param disco
      * @param similarityMeasure
      * @return similarity value between 0 and 1
      **************************************************************************/
-    private float wordSim(String w1, String w2, DISCO disco, SimilarityMeasure similarityMeasure){
+    private float wordSim(String w1, String w2, DISCO disco, 
+            SimilarityMeasure similarityMeasure){
+        
         // convert both words to lower case and compare them
         if ( w1.equalsIgnoreCase(w2) ){
             return (float) 1.0;
@@ -114,25 +111,9 @@ public class TextSimilarity {
         float totalSim = 0.0F;
         float totalWeight = 0.0F;
 
-        // read corpus size (N), minFreq and maxFreq from the DISCO word space
-        ConfigFile cf = new ConfigFile(disco.indexDir);
-        if(cf.tokencount <= 0 ){
-            throw new CorruptConfigFileException("ERROR: tokencount in \""+disco.indexDir+
-                    File.separator+"disco.config\" is "+cf.tokencount);
-        }
-        if(cf.minFreq <= 0 ){
-            throw new CorruptConfigFileException("ERROR: minFreq in \""+disco.indexDir+
-                    File.separator+"disco.config\" is "+cf.minFreq);
-        }
-        if(cf.maxFreq <= 0 ){
-            throw new CorruptConfigFileException("ERROR: maxFreq in \""+disco.indexDir+
-                    File.separator+"disco.config\" is "+cf.maxFreq);
-        }
-        // read the stopword list from the config file in the DISCO word space
-        // directory
-        String[] stop = cf.stopwords.split(" ");
+        // store the stopword list from the DISCO word space in a Map
         HashMap stopHash = new HashMap();
-        for (String s : stop) {
+        for( String s : disco.getStopwords() ) {
             stopHash.put(s, 1);
         }
 
@@ -184,8 +165,7 @@ public class TextSimilarity {
                 // entferne t[max_k] aus text1
                 t.remove(max_k);
             }
-            w = weight((String)h.get(i), disco, cf.tokencount, cf.minFreq,
-                    cf.maxFreq);
+            w = weight( (String) h.get(i), disco);
             totalSim = totalSim + maxsim * w;
             totalWeight = totalWeight + w;
         }

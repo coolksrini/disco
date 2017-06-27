@@ -10,6 +10,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Properties;
 
 /*******************************************************************************
@@ -18,7 +19,9 @@ import java.util.Properties;
  * @author peter
  * @version 2.0
  ******************************************************************************/
-public class ConfigFile {
+public class ConfigFile implements Serializable {
+    
+    private static final long serialVersionUID = 20160717002L;
     
     /**
      * Known file formats. 
@@ -85,7 +88,8 @@ public class ConfigFile {
     // bz
     public int numberFeatureWords = 30000;
     // number of most similar words to store for each word. Given by DISCOBuilder
-    // parameter -nBest (default 300) or Import parameter -nBest.
+    // parameter -nBest (default 300) or Import parameter -nBest (overridden by
+    // dimension of input vector file).
     // 0 for word spaces of type COL.
     public int numberOfSimilarWords = 0;
     public String weightingMethod = "lin";
@@ -230,7 +234,7 @@ public class ConfigFile {
         }
         
         if( props.getProperty("similarityMeasure") != null && !props.getProperty("similarityMeasure").isEmpty() ){
-            similarityMeasure = DISCO.getSimilarityMeasure(props.getProperty("similarityMeasure"));
+            similarityMeasure = DISCOLuceneIndex.getSimilarityMeasure(props.getProperty("similarityMeasure"));
         }
             
         if( props.getProperty("dontCompute2ndOrder") != null && !props.getProperty("dontCompute2ndOrder").isEmpty() ){

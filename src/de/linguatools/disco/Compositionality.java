@@ -1,5 +1,5 @@
 /*******************************************************************************
- *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015 Peter Kolb
+ *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2016 Peter Kolb
  *   peter.kolb@linguatools.org
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -20,19 +20,15 @@ package de.linguatools.disco;
 
 import de.linguatools.disco.DISCO.SimilarityMeasure;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.store.FSDirectory;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * This class contains support for compositional distributional semantics.
+ * This class provides support for compositional distributional semantics.
  * There are methods to compute the similarity between multi-word terms,
  * phrases and sentences or even paragraphs based on composition of the vectors
  * of individual words.
@@ -46,15 +42,15 @@ public class Compositionality {
      */
     public enum VectorCompositionMethod {
         /**
-         * Simple vector addition
+         * Simple vector addition.
          */
         ADDITION, 
        /**
-        * vector subtraction
+        * Vector subtraction.
         */
         SUBTRACTION,
         /**
-         * Entry-wise multiplication
+         * Entry-wise multiplication.
          */
         MULTIPLICATION, 
         /**
@@ -76,7 +72,15 @@ public class Compositionality {
          * See chapter 4 of J. Mitchell: Composition in Distributional Models of
          * Semantics. PhD, Edinburgh, 2011.
          */
-        DILATION;
+        DILATION,
+        /**
+         * Vector extrema combines vectors by choosing for each vector dimension
+         * the value that has the highest distance from zero, i.e. the highest 
+         * absolute value.
+         * See G. Forgues et al. (2014): Bootstrapping Dialog Systems with Word
+         * Embeddings. NIPS 2014.
+         */
+        EXTREMA;
     }
     
     /**
@@ -85,7 +89,7 @@ public class Compositionality {
      * @param wv2 second word vector
      * @return result (a scalar, not a vector)
      */
-    private float computeDotProduct(HashMap<String,Float> wv1, 
+    private static float computeDotProduct(HashMap<String,Float> wv1, 
             HashMap<String,Float> wv2){
         
         float sp = 0.0F;
@@ -108,7 +112,7 @@ public class Compositionality {
      * @param lambda
      * @return 
      */
-    private HashMap<String,Float> composeVectorsByDilation(
+    private static HashMap<String,Float> composeVectorsByDilation(
             HashMap<String,Float> wv1, HashMap<String,Float> wv2, Float lambda){
         
         if( lambda == null) lambda = 2.0F;
@@ -126,7 +130,7 @@ public class Compositionality {
      * @param scalar
      * @return 
      */
-    private HashMap<String,Float> multiplicateWordVectorWithScalar(
+    private static HashMap<String,Float> multiplicateWordVectorWithScalar(
             HashMap<String,Float> wv, float scalar){
         
         for (String w : wv.keySet()) {
@@ -155,7 +159,7 @@ public class Compositionality {
      * @param c weight of multiplicative contribution of both word vectors
      * @return 
      */
-    private HashMap<String,Float> composeVectorsByCombinedMultAdd(
+    private static HashMap<String,Float> composeVectorsByCombinedMultAdd(
             HashMap<String,Float> wv1, HashMap<String,Float> wv2, Float a, 
             Float b, Float c){
         
@@ -184,7 +188,7 @@ public class Compositionality {
      * @param wv2 word vector #2
      * @return the combined word vector
      */
-    private HashMap<String,Float> composeVectorsByMultiplication(
+    private static HashMap<String,Float> composeVectorsByMultiplication(
             HashMap<String,Float> wv1, HashMap<String,Float> wv2){
         
         HashMap<String,Float> result = new HashMap();
@@ -202,7 +206,7 @@ public class Compositionality {
      * @param wv2
      * @return the combined word vector
      */
-    private HashMap<String,Float> composeVectorsByAddition(
+    private static HashMap<String,Float> composeVectorsByAddition(
             HashMap<String,Float> wv1, HashMap<String,Float> wv2){
         
         HashMap<String,Float> result = new HashMap();
@@ -228,7 +232,7 @@ public class Compositionality {
      * @param wv2
      * @return the combined word vector
      */
-    private HashMap<String,Float> composeVectorsBySubtraction(
+    private static HashMap<String,Float> composeVectorsBySubtraction(
             HashMap<String,Float> wv1, HashMap<String,Float> wv2){
         
         HashMap<String,Float> result = new HashMap();
@@ -249,6 +253,80 @@ public class Compositionality {
     }
     
     /**
+     * Choose for each dimension the highest absolute value.
+     * @param wv1
+     * @param wv2
+     * @return 
+     */
+    private static HashMap<String,Float> composeVectorsByExtrema(
+            HashMap<String,Float> wv1, HashMap<String,Float> wv2){
+        
+        HashMap<String,Float> result = new HashMap();
+        for (String w : wv1.keySet()) {
+            if( !wv2.containsKey(w) ){
+                result.put(w, wv1.get(w));
+            }else{
+                if( Math.abs(wv1.get(w)) >= Math.abs(wv2.get(w)) ){
+                    result.put(w, wv1.get(w));
+                }else{
+                    result.put(w, wv2.get(w));
+                }
+            }
+        }
+        for (String w : wv2.keySet()) {
+            if( !wv1.containsKey(w) ){
+                result.put(w, wv2.get(w));
+            }
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Compute the average vector of all vectors in the list.
+     * @param vectors
+     * @return average vector
+     * @since 3.0
+     */
+    public static HashMap<String,Float> averageVector(List<HashMap<String,Float>> vectors){
+        
+        HashMap<String,Float> result = new HashMap();
+        
+        // sum up for all dimensions
+        for( HashMap<String,Float> v : vectors ){
+            for( String w : v.keySet() ){
+                if( result.containsKey(w) ){
+                    result.put(w, v.get(w) + result.get(w));
+                }else{
+                    result.put(w, v.get(w));
+                }
+            }
+        }
+        // divide each dimension's value by number of vectors
+        for( String w : result.keySet() ){
+            result.put(w, (float) result.get(w) / (float)vectors.size());
+        }
+        return result;
+    }
+    
+    /**
+     * Computes vector rejection of a on b. See https://en.wikipedia.org/wiki/Vector_projection
+     * and http://bookworm.benschmidt.org/posts/2015-10-25-Word-Embeddings.html.<br/>
+     * Example: to get the "river" meaning for the word "bank" use vector rejection:
+     * bank_without_finance = vectorRejection(bank, averageVector(deposit, account, cashier)).
+     * @param a 
+     * @param b
+     * @return 
+     * @since 3.0
+     */
+    public static HashMap<String,Float> vectorRejection(HashMap<String,Float> a,
+            HashMap<String,Float> b){
+        
+        return composeVectorsBySubtraction(a, multiplicateWordVectorWithScalar(b, 
+                computeDotProduct(a, b) / computeDotProduct(b, b)));
+    }
+    
+    /**
      * Compose two word vectors by the composition method given in 
      * <code>compositionMethod</code>.
      * @param wv1 word vector #1
@@ -260,10 +338,14 @@ public class Compositionality {
      * @param lambda only needed for composition method DILATION.
      * @return the resulting word vector or <code>null</code>.
      */
-    public HashMap<String,Float> composeWordVectors(HashMap<String,Float> wv1,
+    public static HashMap<String,Float> composeWordVectors(HashMap<String,Float> wv1,
             HashMap<String,Float> wv2, VectorCompositionMethod compositionMethod,
             Float a, Float b, Float c, Float lambda){
     
+        if( wv1 == null || wv2 == null ){
+            return null;
+        }
+        
         if( compositionMethod == VectorCompositionMethod.ADDITION ){
             return composeVectorsByAddition(wv1, wv2);
         }else if( compositionMethod == VectorCompositionMethod.SUBTRACTION ){
@@ -273,7 +355,9 @@ public class Compositionality {
         }else if( compositionMethod == VectorCompositionMethod.COMBINED ){
             return composeVectorsByCombinedMultAdd(wv1, wv2, a, b, c); 
         }else if( compositionMethod == VectorCompositionMethod.DILATION ){
-            return composeVectorsByDilation(wv1, wv2, lambda);     
+            return composeVectorsByDilation(wv1, wv2, lambda);   
+        }else if( compositionMethod == VectorCompositionMethod.EXTREMA ){
+            return composeVectorsByExtrema(wv1, wv2);     
         }else{
             return null;
         }
@@ -293,17 +377,25 @@ public class Compositionality {
      * 
      * @return the resulting word vector or <code>null</code>.
      */
-    public HashMap<String,Float> composeWordVectors(ArrayList<HashMap<String,Float>>
+    public static HashMap<String,Float> composeWordVectors(ArrayList<HashMap<String,Float>>
             wordvectorList, VectorCompositionMethod compositionMethod, Float a, 
             Float b, Float c, Float lambda){
         
-        if( wordvectorList.size() < 2 ) return null;
+        if( wordvectorList.size() < 2 ){
+            return null;
+        }
+        if( wordvectorList.get(0) == null || wordvectorList.get(1) == null ){
+            return null;
+        }
         
         // combine the first two vectors in the list
         HashMap<String,Float> wv = composeWordVectors(wordvectorList.get(0),
                 wordvectorList.get(1), compositionMethod, a, b, c, lambda);
         
         for(int i = 2; i < wordvectorList.size(); i++){
+            if( wordvectorList.get(i) == null ){
+                continue;
+            }
             wv = composeWordVectors(wv, wordvectorList.get(i), compositionMethod,
                     a, b, c, lambda);
         }
@@ -314,7 +406,7 @@ public class Compositionality {
      * Utility function. Prints the word vector to standard output.
      * @param wordvector 
      */
-    public void printWordVector(HashMap<String,Float> wordvector){
+    public static void printWordVector(HashMap<String,Float> wordvector){
         
         for (String w : wordvector.keySet()) {
             System.out.println(w+"\t"+wordvector.get(w));
@@ -334,7 +426,7 @@ public class Compositionality {
      * @return the similarity between the two word vectors; a value between 0.0F
      * and 1.0F.
      */
-    private float computeSimilarityKolb(HashMap<String,Float> wv1, 
+    private static float computeSimilarityKolb(HashMap<String,Float> wv1, 
             HashMap<String,Float> wv2){
         
         float nenner = 0;
@@ -361,8 +453,12 @@ public class Compositionality {
      * @return the similarity between the two word vectors; a value between -1.0F
      * and 1.0F. A return value of -2.0F indicates an error.
      */
-    private float computeSimilarityCosine(HashMap<String,Float> wv1, 
+    private static float computeSimilarityCosine(HashMap<String,Float> wv1, 
             HashMap<String,Float> wv2){
+        
+        if( wv1 == null || wv2 == null ){
+            return -2.0F;
+        }
         
         float nenner1 = 0.0F;
         for( Iterator it = wv1.keySet().iterator(); it.hasNext(); ){
@@ -388,13 +484,13 @@ public class Compositionality {
      * @param wordvector1
      * @param wordvector2
      * @param simMeasure One of the similarity measures enumerated in
-     * <code>DISCO.SimilarityMeasures</code>.
+     * <code>DISCOLuceneIndex.SimilarityMeasures</code>.
      * @return The similarity between the two input word vectors; depending on
      * the chosen similarity measure a value between 0.0F and 1.0F, or -1.0F and 
      * 1.0F. In case the <code>similarityMeasure</code> is unknown the return
      * value is -3.0F.
      */
-    public float semanticSimilarity(HashMap<String,Float> wordvector1, 
+    public static float semanticSimilarity(HashMap<String,Float> wordvector1, 
             HashMap<String,Float> wordvector2, SimilarityMeasure simMeasure){
         
         if( simMeasure == SimilarityMeasure.KOLB ){
@@ -416,7 +512,7 @@ public class Compositionality {
      * @return The similarity between the two input word vectors; a value
      * between 0.0F and 1.0F.
      */
-    public float semanticSimilarity(HashMap<String,Float> wordvector1, 
+    public static float semanticSimilarity(HashMap<String,Float> wordvector1, 
             HashMap<String,Float> wordvector2){
         
         return computeSimilarityKolb(wordvector1, wordvector2);
@@ -430,14 +526,18 @@ public class Compositionality {
      * of the individual tokens (constituent words) are retrieved. Then the
      * word vectors are combined using the method <code>composeWordVectors()</code>.
      * The two resulting vectors are then compared using
-     * <code>Compositionality.semanticSimilarity()</code>.
+     * <code>Compositionality.semanticSimilarity()</code>.<br/>
+     * <b>Note</b>: the methods in class <code>TextSimilarity</code> might give
+     * more accurate results for short text similarity because they weight the
+     * words in the input strings by their frequency and try to align words in 
+     * the input strings.
      * @param multiWords1 a tokenized string containing a multi-word term, phrase,
      * sentence or paragraph.
      * @param multiWords2 a tokenized string containing a multi-word term, phrase,
      * sentence or paragraph.
      * @param compositionMethod a vector composition method.
      * @param simMeasure a similarity measure. 
-     * @param disco a DISCO word space.
+     * @param disco a DISCOLuceneIndex word space.
      * @param a only needed for composition method COMBINED.
      * @param b only needed for composition method COMBINED.
      * @param c only needed for composition method COMBINED.
@@ -445,10 +545,11 @@ public class Compositionality {
      * @return the distributional similarity between <code>multiWord1</code> and
      * <code>multiWord2</code>.
      * @throws java.io.IOException
+     * @see de.linguatools.disco.TextSimilarity
      */
-    public float compositionalSemanticSimilarity(String multiWords1, 
+    public static float compositionalSemanticSimilarity(String multiWords1, 
             String multiWords2, VectorCompositionMethod compositionMethod, 
-            SimilarityMeasure simMeasure, DISCO disco, Float a, 
+            SimilarityMeasure simMeasure, DISCOLuceneIndex disco, Float a, 
             Float b, Float c, Float lambda) throws IOException{
         
         multiWords1 = multiWords1.trim();
@@ -503,50 +604,24 @@ public class Compositionality {
      * @param wordvector input word vector
      * @param disco DISCO word space
      * @param simMeasure
+     * @param maxN return only the <code>maxN</code> most similar words. If 
+     * <code>maxN &lt; 1</code> all words are returned. 
      * @return List of all words (with their similarity values) whose similarity
      * with the <code>wordvector</code> is greater than zero, ordered by 
      * similarity value (highest value first).
      * @throws IOException 
      */
-    public ArrayList<ReturnDataCol> similarWords(HashMap<String,Float> wordvector,
-            DISCO disco, SimilarityMeasure simMeasure)
+    public static List<ReturnDataCol> similarWords(HashMap<String,Float> wordvector,
+            DISCO disco, SimilarityMeasure simMeasure, int maxN)
             throws IOException{
         
-        // erzeuge einen IndexReader fuer das indexDir
-        IndexReader ir;
-        try {
-            if( disco.indexRAM != null ){
-                ir = DirectoryReader.open(disco.indexRAM);
-            }else{
-                ir = DirectoryReader.open(FSDirectory.open(Paths.get(disco.indexDir)));
-            }
-        } catch (CorruptIndexException ex) {
-            System.out.println(Compositionality.class.getName()+": "+ex);
-            return null;
-        } catch (IOException ex) {
-            System.out.println(Compositionality.class.getName()+": "+ex);
-            return null;
-        }
+        List<ReturnDataCol> result = new ArrayList();
         
         // durchlaufe alle Dokumente
-        ArrayList<ReturnDataCol> result = new ArrayList();
-        for(int i = 0; i < ir.numDocs(); i++){
-            Document doc;
-            try {
-                doc = ir.document(i);
-            } catch (CorruptIndexException ex) {
-                continue;
-            } catch (IOException ex) {
-                continue;
-            }
-            // Wortvektor zu Wort Nr. i holen
-            String word = doc.get("word");
-            String[] wordsBuffer = doc.get("kol").split(" ");
-            String[] valuesBuffer = doc.get("kolSig").split(" ");
-            HashMap<String,Float> wv = new HashMap();
-            for(int w = 0; w < wordsBuffer.length; w++){
-                wv.put(wordsBuffer[w], Float.parseFloat(valuesBuffer[w]));
-            }
+        Iterator<String> iterator = disco.getVocabularyIterator();
+        while( iterator.hasNext() ){
+            String word = iterator.next();
+            HashMap<String,Float> wv = disco.getWordvector(word);
             // Ähnlichkeit zwischen Wortvektoren berechnen
             float sim = semanticSimilarity(wordvector, wv, simMeasure);
             if( sim > 0.0F){
@@ -557,7 +632,127 @@ public class Compositionality {
         
         // nach höchstem Ähnlichkeitswert sortieren
         Collections.sort(result);
-        
+        if( maxN > 0 ){
+            result = result.subList(0, maxN);
+        }
         return result;
+    }
+    
+    /**
+     * Experimental!
+     * @param wordvector
+     * @param disco
+     * @param simMeasure
+     * @param maxN
+     * @return
+     * @throws IOException
+     * @throws WrongWordspaceTypeException 
+     */
+    public static List<ReturnDataCol> similarWordsGraphSearch(HashMap<String,Float> wordvector,
+            DISCO disco, SimilarityMeasure simMeasure, int maxN)
+            throws IOException, WrongWordspaceTypeException{
+        
+        // check word space type
+        if( disco.getWordspaceType() != DISCO.WordspaceType.SIM ){
+            throw new WrongWordspaceTypeException("This method can not be applied"
+                    + "to word spaces of type "+disco.getWordspaceType());
+        }
+        
+        List<ReturnDataCol> result = new ArrayList();
+        
+        // pick random start word
+        int start = ThreadLocalRandom.current().nextInt(0, disco.numberOfWords() );
+        String startWord = disco.getWord(start);
+        HashMap<String,Float> wvStart = disco.getWordvector(startWord);
+        float sim = semanticSimilarity(wvStart, wordvector, simMeasure);
+        boolean better = false;
+        do{
+            // get similar words for start word
+            ReturnDataBN similarWords = disco.similarWords(startWord);
+            // find the most similar word to the input word vector. Only look at the
+            // first depth words
+            int depth = 20;
+            String maxWord = startWord;
+            float maxSim = sim;
+            HashMap<String,Float> maxWordvector = wvStart;
+            for( int i = 0; i < similarWords.words.length; i++ ){
+                if( i == depth ){
+                    break;
+                }
+                HashMap<String,Float> wv = disco.getWordvector(similarWords.words[i]);
+                float s = semanticSimilarity(wordvector, wv, simMeasure);
+                if( s > maxSim ){
+                    maxSim = s;
+                    maxWord = similarWords.words[i];
+                    maxWordvector = wv;
+                }
+            }
+            if( maxSim > sim ){
+                sim = maxSim;
+                startWord = maxWord;
+                wvStart = maxWordvector;
+                better = true;
+            }
+        }while( better );
+  
+        ReturnDataCol r = new ReturnDataCol(startWord, sim);
+        result.add(r);
+        // nach höchstem Ähnlichkeitswert sortieren
+//        Collections.sort(result);
+//        if( maxN > 0 ){
+//            result = result.subList(0, maxN);
+//        }
+        return result;
+    }
+    
+    /**
+     * This method solves the analogy "w1 is to w2 like x is to w3", i.e. it 
+     * returns the missing word x. Example: "king is to man like x is to woman"
+     * with x = queen. This is done by the formula v(x) = v(w1) - v(w2) + v(w3),
+     * where v(w) is the word vector for a word w.<br/>
+     * The methods vector addition and subtraction from the 
+     * <code>Compositionality</code> class are used.<br/>
+     * This works best with word spaces computed with word2vec.<br/>
+     * <b>Warning:</b> This method is very time consuming because after computing
+     * v(x), the most similar word vector to v(x) has to be found in the word 
+     * space. This is done by comparing <b>all</b> vectors in the word space with
+     * v(x).
+     * @param w1 first word (must be single token)
+     * @param w2 second word (must be single token)
+     * @param w3 third word (must be single token)
+     * @param disco
+     * @return ordered list with the nearest words to v(x) or null if one of 
+     * words w1, w2, or w3 was not found in the DISCO index. You may want to 
+     * filter out w1, w2, and w3 from the resulting list.
+     * @throws IOException 
+     * @throws de.linguatools.disco.WrongWordspaceTypeException 
+     */
+    public static List<ReturnDataCol> solveAnalogy(String w1, String w2, String w3,
+            DISCO disco) throws IOException, WrongWordspaceTypeException{
+        
+        // get word vectors from DISCO word space
+        HashMap<String,Float> wv1 = disco.getWordvector(w1);
+        if( wv1 == null ){
+            return null;
+        }
+        HashMap<String,Float> wv2 = disco.getWordvector(w2);
+        if( wv2 == null ){
+            return null;
+        }
+        HashMap<String,Float> wv3 = disco.getWordvector(w3);
+        if( wv3 == null ){
+            return null;
+        }
+        
+        // compute wvx = wv1 - wv2 + wv3
+        HashMap<String,Float> temp = composeWordVectors(wv1, wv2,
+                VectorCompositionMethod.SUBTRACTION,
+                null, null, null, null);
+        HashMap<String,Float> wvx = composeWordVectors(temp, wv3,
+                VectorCompositionMethod.ADDITION,
+                null, null, null, null);
+        
+        // find nearest words for wvx
+        return similarWords(wvx, disco, SimilarityMeasure.COSINE, 12);
     }
 }

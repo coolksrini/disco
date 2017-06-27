@@ -1,5 +1,5 @@
 /*******************************************************************************
- *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015 Peter Kolb
+ *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2016 Peter Kolb
  *   peter.kolb@linguatools.org
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may not

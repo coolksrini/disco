@@ -22,10 +22,10 @@ package de.linguatools.disco;
  * This class provides a data structure that is used as return value for the
  * method DISCO.similarWords(). 
  * @author peter
- * @version 2.0
+ * @version 3.0
  ***************************************************************************/
 public class ReturnDataBN {
     
     public String[] words;
-    public String[] values;
+    public float[] values;
 }

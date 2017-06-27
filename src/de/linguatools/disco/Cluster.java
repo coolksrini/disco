@@ -1,5 +1,5 @@
 /*******************************************************************************
- *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015 Peter Kolb
+ *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2017 Peter Kolb
  *   peter.kolb@linguatools.org
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -25,25 +25,21 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Set;
-import org.apache.lucene.document.Document;
 import org.apache.lucene.index.CorruptIndexException;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
 
 /*******************************************************************************
  * This class provides methods that operate on sets of semantically similar 
  * words or collocations.
  * @author peter
- * @version 2.0
+ * @version 3.0
  */
 public class Cluster {
 
     /***************************************************************************
-     * This method takes the list of the n most similar words of the
-     * input word and filters out all words that do not appear in the
-     * similarity list of at least one of the other similar
-     * words of the input word.<br/>
-     * The resulting list of similar words will have size &lt;= n.<br/>
+     * This method takes the list of the n most similar words of the input word
+     * and filters out all words that do not appear in the similarity list of at
+     * least one of the other similar words of the input word.<br>
+     * The resulting list of similar words will have size &lt;= n.<br>
      * <b>Important note:</b> This method only works with word spaces
      * of type <code>DISCO.WordspaceType.SIM</code>.
      * @param disco DISCO word space of type <code>DISCO.WordspaceType.SIM</code>.
@@ -58,9 +54,9 @@ public class Cluster {
             throws IOException, WrongWordspaceTypeException{
 
         // check word space type
-        if( disco.wordspaceType != DISCO.WordspaceType.SIM ){
+        if( disco.getWordspaceType() != DISCO.WordspaceType.SIM ){
             throw new WrongWordspaceTypeException("This method can not be applied"
-                    + "to word spaces of type "+disco.wordspaceType);
+                    + "to word spaces of type "+disco.getWordspaceType());
         }
         
         // retrieve the n most similar words of the input word ...
@@ -104,7 +100,7 @@ public class Cluster {
         }
         // allocate String arrays with correct dimensionality
         String[] wordsResult = new String[a];
-        String[] valuesResult = new String[a];
+        float[] valuesResult = new float[a];
         // save all words from simW0 that have a value of 2 in the hash in the
         // output data structure
         a = 0;
@@ -123,14 +119,13 @@ public class Cluster {
     }
 
     /***************************************************************************
-     * Retrieves the similar words for all the words in the input set
-     * and extends the input set by all words that appear in the
-     * similarity lists of all the input words. I.e. adds the
-     * intersection of the similarity lists of the input words to
-     * the input set.<br/>
+     * Retrieves the similar words for all the words in the input set and 
+     * extends the input set by all words that appear in the similarity lists of
+     * all the input words. I.e. adds the intersection of the similarity lists
+     * of the input words to the input set.<br>
      * This method is comparable to <a 
      * href="http://googlesystem.blogspot.de/2011/08/google-sets-will-be-shut-down.html">Google
-     * Sets</a>.<br/>
+     * Sets</a>.<br>
      * <b>Important note:</b> This method only works with word spaces
      * of type <code>DISCO.WordspaceType.SIM</code>!
      * @param disco DISCO word space of type <code>DISCO.WordspaceType.SIM</code>.
@@ -144,9 +139,9 @@ public class Cluster {
             throws IOException, WrongWordspaceTypeException{
 
         // check word space type
-        if( disco.wordspaceType != DISCO.WordspaceType.SIM ){
+        if( disco.getWordspaceType() != DISCO.WordspaceType.SIM ){
             throw new WrongWordspaceTypeException("This method can not be applied"
-                    + "to word spaces of type "+disco.wordspaceType);
+                    + "to word spaces of type "+disco.getWordspaceType());
         }
         
         // store the input set in a hash
@@ -199,11 +194,11 @@ public class Cluster {
     /***************************************************************************
      * Creates a sparse graph file that can be clustered with <a 
      * href="http://glaros.dtc.umn.edu/gkhome/cluto/cluto/overview">CLUTO</a>'s
-     * <code>scluster</code> program.<br/>
+     * <code>scluster</code> program.<br>
      * <b>Important note:</b> This method only works with word spaces of type
      * <code>DISCO.WordspaceType.SIM</code>!
      * @param disco DISCO word space loaded into RAM. The word space has to be
-     *              of type <code>DISCO.WordspaceType.SIM</code>.
+              of type <code>DISCO.WordspaceType.SIM</code>.
      * @param n cluster the first n words in the word space index.
      * @param minSim create an edge between words that have a similarity value
      * of at least <code>minSim</code>.
@@ -221,17 +216,13 @@ public class Cluster {
             throws CorruptIndexException, IOException, WrongWordspaceTypeException{
 
         // check word space type
-        if( disco.wordspaceType != DISCO.WordspaceType.SIM ){
+        if( disco.getWordspaceType() != DISCO.WordspaceType.SIM ){
             throw new WrongWordspaceTypeException("This method can not be applied"
-                    + "to word spaces of type "+disco.wordspaceType);
+                    + "to word spaces of type "+disco.getWordspaceType());
         }
         
-        // erzeuge einen IndexReader fuer das indexDir
-        IndexReader ir = DirectoryReader.open(disco.indexRAM);
-
         // Hole Anzahl Dokumente im Index
-        int N = ir.numDocs();
-
+        int N = disco.numberOfWords();
         if( n > N ){
             System.out.println("Error: there are only "+N+" words in the index.");
             return;
@@ -241,9 +232,14 @@ public class Cluster {
         // for every word (Lucene document) from id 0 to n
         System.out.println("create word-ID mapping for first "+n+" words in index...");
         HashMap<String, Integer> wordIDHash = new HashMap<>();
-        for(int i = 0; i < n; i++){
-            Document doc = ir.document(i);
-            wordIDHash.put(doc.get("word"), i+1);
+        Iterator<String> iterator = disco.getVocabularyIterator();
+        int i = 0;
+        while( iterator.hasNext() ){
+            if( i >= n ){
+                break;
+            }
+            String word = iterator.next();
+            wordIDHash.put( word, i+1 );
             if( i % 10 == 0 ){
                 System.out.print("\r"+i);
             }
@@ -251,51 +247,60 @@ public class Cluster {
         System.out.println("   OK.");
         System.out.flush();
 
-        // create output file (CLUTO's sparse graph format)
-        FileWriter sparseMatrixFileWriter = new FileWriter(outputDir +
-                File.separator + "sparseGraph.dat");
+        FileWriter rowLabelsFileWriter;
         // öffne Ausgabedatei (row labels)
-        FileWriter rowLabelsFileWriter = new FileWriter(outputDir +
-                File.separator + "rowLabels.dat");
-
-        // for every word (Lucene document) from id 0 to n
-        System.out.println("create similarity graph for first "+n+" words...");
-        int emptyRows = 0;
-        int numberOfEntries = 0;
-        for(int i = 0; i < n; i++){
-            // retrieve similar words with their similarity values
-            Document doc = ir.document(i);
-            String[] dsb = doc.get("dsb").split(" ");
-            String[] dsbSim = doc.get("dsbSim").split(" ");
-            // for every similar word dsb[s]
-            boolean first = true;
-            for(int s = 0; s < dsb.length; s++){
-                // if the word has a similarity lower than minSim, process the
-                // next word (the words in dsb are ordered by similarity)
-                if( Float.parseFloat("0."+dsbSim[s]) < minSim) break;
-                // only use words that are among the first n
-                if( !wordIDHash.containsKey(dsb[s])) break;
-                // write pair <wordID, sim>
-                if( first ){
-                    sparseMatrixFileWriter.write(wordIDHash.get(dsb[s])+" 0."+dsbSim[s]);
-                    first = false;
-                }else{
-                    sparseMatrixFileWriter.write(" "+wordIDHash.get(dsb[s])+" 0."+dsbSim[s]);
+        try ( // create output file (CLUTO's sparse graph format)
+                FileWriter sparseMatrixFileWriter = new FileWriter(outputDir +
+                        File.separator + "sparseGraph.dat")) {
+            // öffne Ausgabedatei (row labels)
+            rowLabelsFileWriter = new FileWriter(outputDir +
+                    File.separator + "rowLabels.dat");
+            // for every word (Lucene document) from id 0 to n
+            System.out.println("create similarity graph for first "+n+" words...");
+            int emptyRows = 0;
+            int numberOfEntries = 0;
+            iterator = disco.getVocabularyIterator();
+            i = 0;
+            while( iterator.hasNext() ){
+                if( i >= n ){
+                    break;
                 }
-                numberOfEntries++;
-            }
-            sparseMatrixFileWriter.write("\n");
-            rowLabelsFileWriter.write(doc.get("word")+"\n");
-            if( first ) emptyRows++;
-            // Info
-            if( i % 10 == 0 ){
-                System.out.print("\r"+i);
-            }
+                String word = iterator.next();
+                ReturnDataBN similarWords = disco.similarWords(word);
+                // for every similar word s
+                boolean first = true;
+                for( int s = 0; s < similarWords.words.length; s++){
+                    // if the word has a similarity lower than minSim, process the
+                    // next word (the words in dsb are ordered by similarity)
+                    if( similarWords.values[s] < minSim){
+                        break;
+                    }
+                    // only use words that are among the first n
+                    if( !wordIDHash.containsKey(similarWords.words[s]) ){
+                        break;
+                    }
+                    // write pair <wordID, sim>
+                    if( first ){
+                        sparseMatrixFileWriter.write( wordIDHash.get(similarWords.words[s])
+                                +" "+similarWords.values[s]);
+                        first = false;
+                    }else{
+                        sparseMatrixFileWriter.write(" "+wordIDHash.get(similarWords.words[s])
+                                +" "+similarWords.values[s]);
+                    }
+                    numberOfEntries++;
+                }
+                sparseMatrixFileWriter.write("\n");
+                rowLabelsFileWriter.write(word+"\n");
+                if( first ) emptyRows++;
+                // Info
+                if( i % 10 == 0 ){
+                    System.out.print("\r"+i);
+                }
+            }   System.out.println("   OK.\nempty rows = "+emptyRows);
+            System.out.println("numberOfVertices = "+n);
+            System.out.println("numberOfEntries = "+numberOfEntries);
         }
-        System.out.println("   OK.\nempty rows = "+emptyRows);
-        System.out.println("numberOfVertices = "+n);
-        System.out.println("numberOfEntries = "+numberOfEntries);
-        sparseMatrixFileWriter.close();
         rowLabelsFileWriter.close();
     }
 
@@ -303,11 +308,11 @@ public class Cluster {
      * Creates sparse matrix file for use with <a 
      * href="http://glaros.dtc.umn.edu/gkhome/cluto/cluto/overview">CLUTO</a>'s
      * <code>vcluster</code> program. For every word in the word list its word
-     * vector is retrieved from the DISCO index and written to the sparse matrix
-     * file. A row label file is also created that maps the row numbers to the
-     * words.
-     * @param disco DISCO word space loaded into RAM. The word space may be of
-     *              any type.
+     * vector is retrieved from the DISCO word space and written to the sparse
+     * matrix file. A row label file is also created that maps the row numbers
+     * to the words.
+     * @param disco DISCO word space loaded into RAM. The word space may be of 
+     * any type.
      * @param wordList list of words to be clustered.
      * @param outputDir output directory. Two files are created in the output
      * directory <code>outputDir</code>: <code>sparseMatrix.dat</code> and
@@ -318,60 +323,64 @@ public class Cluster {
     public void clutoClusterVectors(DISCO disco, ArrayList<String> wordList,
             String outputDir) throws IOException{
 
-        // öffne Ausgabedatei (sparse matrix)
-        FileWriter sparseMatrixFileWriter = new FileWriter(outputDir +
-                File.separator + "sparseMatrix.dat");
+        FileWriter rowLabelsFileWriter;
+        HashMap<String, Integer> featureHash;
+        int rowNumber;
+        int numberOfEntries;
+        int emptyRows;
         // öffne Ausgabedatei (row labels)
-        FileWriter rowLabelsFileWriter = new FileWriter(outputDir +
-                File.separator + "rowLabels.dat");
-
-        HashMap<String, Integer> featureHash = new HashMap<>();
-        int fNr = 1;
-        int rowNumber = 0;
-        int numberOfEntries = 0;
-        int emptyRows = 0;
-
-        // für jedes Wort in der Wort-Liste den Wortvektor holen
-        System.out.println("Creating word vectors for "+wordList.size()+" words");
-        for (String wordList1 : wordList) {
-            HashMap<String, Float> wv = disco.getWordvector(wordList1);
-            if (wv == null) {
-                System.out.println("word " + wordList1 + " not found in index" + " -- word ignored");
-                continue;
-            }
-            if( wv.isEmpty()) emptyRows++;
-            // for every entry (feature) in the word vector
-            boolean first = true;
-            for (String feature : wv.keySet()) {
-                // speichere feature (=word + relation) in Hash
-                int m;
-                if( featureHash.containsKey(feature)){
-                    m = featureHash.get(feature);
-                }else{
-                    featureHash.put(feature, fNr);
-                    m = fNr;
-                    fNr++;
+        try ( // öffne Ausgabedatei (sparse matrix)
+                FileWriter sparseMatrixFileWriter = new FileWriter(outputDir +
+                        File.separator + "sparseMatrix.dat")) {
+            // öffne Ausgabedatei (row labels)
+            rowLabelsFileWriter = new FileWriter(outputDir +
+                    File.separator + "rowLabels.dat");
+            featureHash = new HashMap<>();
+            int fNr = 1;
+            rowNumber = 0;
+            numberOfEntries = 0;
+            emptyRows = 0;
+            // für jedes Wort in der Wort-Liste den Wortvektor holen
+            System.out.println("Creating word vectors for "+wordList.size()+" words");
+            for (String wordList1 : wordList) {
+                HashMap<String, Float> wv = disco.getWordvector(wordList1);
+                if (wv == null) {
+                    System.out.println("word " + wordList1 + " not found in index" + " -- word ignored");
+                    continue;
                 }
-                // Paar <fNr, value> ausgeben
-                if( first == true){
-                    sparseMatrixFileWriter.write(m+" "+wv.get(feature));
-                    first = false;
-                }else{
-                    sparseMatrixFileWriter.write(" "+m+" "+wv.get(feature));
+                if( wv.isEmpty()) emptyRows++;
+                // for every entry (feature) in the word vector
+                boolean first = true;
+                for (String feature : wv.keySet()) {
+                    // speichere feature (=word + relation) in Hash
+                    int m;
+                    if( featureHash.containsKey(feature)){
+                        m = featureHash.get(feature);
+                    }else{
+                        featureHash.put(feature, fNr);
+                        m = fNr;
+                        fNr++;
+                    }
+                    // Paar <fNr, value> ausgeben
+                    if( first == true){
+                        sparseMatrixFileWriter.write(m+" "+wv.get(feature));
+                        first = false;
+                    }else{
+                        sparseMatrixFileWriter.write(" "+m+" "+wv.get(feature));
+                    }
+                    numberOfEntries++;
                 }
-                numberOfEntries++;
-            }
-            // Zeile (Dokument) beenden
-            sparseMatrixFileWriter.write("\n");
-            // Wort als Label in row labels Datei schreiben
-            rowLabelsFileWriter.write(wordList1 + "\n");
-            rowNumber++;
-            // Info ausgeben
-            if( rowNumber % 10 == 0 ){
-                System.out.print("\r"+rowNumber);
+                // Zeile (Dokument) beenden
+                sparseMatrixFileWriter.write("\n");
+                // Wort als Label in row labels Datei schreiben
+                rowLabelsFileWriter.write(wordList1 + "\n");
+                rowNumber++;
+                // Info ausgeben
+                if( rowNumber % 10 == 0 ){
+                    System.out.print("\r"+rowNumber);
+                }
             }
         }
-        sparseMatrixFileWriter.close();
         rowLabelsFileWriter.close();
         System.out.println("\nSparse matrix and labels written (emptyRows = " +
                 ""+emptyRows+")");

@@ -1,5 +1,5 @@
 /*******************************************************************************
- *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015 Peter Kolb
+ *   Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2016 Peter Kolb
  *   peter.kolb@linguatools.org
  *
  *   Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -32,23 +32,24 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Scanner;
 import java.util.Set;
 import org.apache.lucene.index.CorruptIndexException;
 
 /*******************************************************************************
- * This class provides the command line interface for DISCO.
+ * This class provides the command line interface for DISCOLuceneIndex.
  * @author peter
- * @version 2.1
+ * @version 3.0
  *******************************************************************************/
 public class Main{
-    
     
     /*******************************************************************
      * Print usage information.
      *******************************************************************/
     private static void printUsage(){
-        System.out.println("disco V2.1 -- www.linguatools.de/disco");
-        System.out.println("Usage: java -jar disco-2.0.jar <indexDir> <option>");
+        System.out.println("disco V3.0 -- www.linguatools.de/disco");
+        System.out.println("Usage: java -jar disco-3.0.jar <indexDir> <option>");
         System.out.println("Options:   NOTE THAT <w>, <w1>, <w2> have to be single tokens!");
         System.out.println("\t\t-f <w>\t\treturn corpus frequency of word <w>");
         System.out.println("\t\t-s <w1> <w2> <simMeasure>\treturn semantic similarity between words <w1> and <w2>");
@@ -66,11 +67,13 @@ public class Main{
         // compositional
         System.out.println("\t\t-cs \"<p1>\" \"<p2>\"\tcompute semantic similarity between multi-word terms or phrases"
                 + "\n\t\t\t<p1> and <p2> using vector composition");
+        System.out.println("\t\t-a \"<w1>\" \"<w2>\" \"<w3>\"\tcompute word x that completes the analogy "
+                + "\"<w1> is to <w2> as x is to <w3>\"."); 
         // file input
-        System.out.println("\t\t-ds <inputFile>\toutput semantic similarity for all word pairs in input file");
-        System.out.println("\t\t-dr <inputFile>\toutput rank of w2 in similarity list of w1 for all word pairs in input file");
-        System.out.println("\t\t-dbn <inputFile>\toutput all words with similarity >= 0.01 for every word in input file");
-        System.out.println("\t\t-dbc <inputFile>\toutput collocations for every word in input file");
+        System.out.println("\t\t-ds <inputFile> <simMeasure>\toutput semantic similarity for all word pairs in input file");
+        System.out.println("\t\t-dr <inputFile> <simMeasure>\toutput rank of w2 in similarity list of w1 for all word pairs in input file");
+        System.out.println("\t\t-dbn <inputFile> <simMeasure>\toutput all words with similarity >= 0.01 for every word in input file");
+        System.out.println("\t\t-dbc <inputFile> <simMeasure>\toutput collocations for every word in input file");
         // text similarity
         System.out.println("\t\t-ts \"<text1>\" \"<text2>\" <simMeasure>\tcompute semantic relatedness between <text1> and <text2>");
         System.out.println("\t\t-tsd \"<text>\" \"<hypothesis>\" <simMeasure>\tcompute the directed " +
@@ -107,11 +110,12 @@ public class Main{
      * "sim", "rank", "bn" or "bc".<br/>
      * If a word can not be found in the index, the word pair receives the
      * similarity 0, and a warning is printed to the standard error stream.
-     * @param indexName path to the index directory (DISCO word space)
+     * @param indexName path to the index directory (DISCOLuceneIndex word space)
      * @param inputFile input file
      * @param s
      *******************************************************************************/
-    private static void readFile(String indexName, File inputFile, int s) 
+    private static void readFile(String indexName, File inputFile, int s, 
+            DISCO.SimilarityMeasure simMeasure) 
             throws IOException, FileNotFoundException, CorruptIndexException, 
             CorruptConfigFileException{
         
@@ -126,8 +130,8 @@ public class Main{
         String outputName = inputFile.getAbsolutePath() + suffix;
         File outputFile = new File(outputName);
         BufferedWriter bw = new BufferedWriter(new FileWriter(outputFile.getCanonicalPath()));
-        // create class DISCO and load word space into RAM
-        DISCO d = new DISCO(indexName, true);
+        // load word space into RAM
+        DISCOLuceneIndex d = new DISCOLuceneIndex(indexName, true);
         // Rank?
         Rank rank = null;
         if( s == 5 || s == 6 ){
@@ -147,7 +151,7 @@ public class Main{
             try {
                 System.out.println("segs[0]: "+segs[0]+", segs[1]: "+segs[1]);
                     float sim = 0;
-                    if( s == 1 ) sim = d.semanticSimilarity(segs[0], segs[1]);
+                    if( s == 1 ) sim = d.semanticSimilarity(segs[0], segs[1], simMeasure);
                     else if ( s == 3 ){
                         ReturnDataBN res = d.similarWords(segs[0]);
                         if ( res == null ){ 
@@ -157,7 +161,7 @@ public class Main{
                         float schwellwert = (float) 0.01;
                         bw.write(segs[0]);
                         for(int k = 1; k < res.words.length; k++){
-                            if( Float.parseFloat(res.values[k]) < schwellwert ) break;
+                            if( res.values[k] < schwellwert ) break;
                             bw.write(" "+res.words[k]+res.values[k]);
                         }
                         bw.newLine();
@@ -216,7 +220,7 @@ public class Main{
      **************************************************************************/
     public static void main(String[] args) throws IOException, 
             FileNotFoundException, CorruptIndexException, 
-            CorruptConfigFileException{
+            CorruptConfigFileException, WrongWordspaceTypeException{
         
         if (args.length < 2) {
             printUsage();
@@ -237,7 +241,7 @@ public class Main{
                     return;
                 }
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     int freq = d.frequency(args[2]);
                     System.out.println(freq);
                 } catch (IOException ex) {
@@ -256,13 +260,13 @@ public class Main{
                     printUsage();
                     return;
                 }
-                SimilarityMeasure measure = DISCO.getSimilarityMeasure(args[4]);
+                SimilarityMeasure measure = DISCOLuceneIndex.getSimilarityMeasure(args[4]);
                 if( measure == null ){
                     System.out.println("Error: unknown similarity measure: "+args[4]);
                     return;
                 }
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     float sim = d.semanticSimilarity(args[2], args[3], measure);
                     if ( sim == -2.0F ){
                         System.out.println("Error: Word not found in index.");
@@ -288,7 +292,7 @@ public class Main{
                     return;
                 }
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     float sim = d.secondOrderSimilarity(args[2], args[3]);
                     if ( sim == -1 ){
                         System.out.println("Error: Word not found in index.");
@@ -315,7 +319,7 @@ public class Main{
                     return;
                 }
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     ReturnDataBN res = d.similarWords(args[2]);
                     if ( res == null ){ 
                         System.out.println("The word \""+args[2]+"\" was not found."); 
@@ -346,7 +350,7 @@ public class Main{
                     return;
                 }
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     ReturnDataBN res = d.similarWords(args[2]);
                     if ( res == null ){ 
                         System.out.println("The word \""+args[2]+"\" was not found."); 
@@ -354,7 +358,7 @@ public class Main{
                     }
                     float s = Float.parseFloat(args[3]);
                     for(int k = 0; k < res.words.length; k++){
-                        if( Float.parseFloat(res.values[k]) < s ) break;
+                        if( res.values[k] < s ) break;
                         System.out.println(res.words[k]+"\t"+res.values[k]);
                     }
                 } catch (IOException ex) {
@@ -378,7 +382,7 @@ public class Main{
                 }
                 ReturnDataCol[] res;
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     res = d.collocations(args[2]);
                     if ( res == null ){ 
                         System.out.println("The word \""+args[2]+"\" was not found."); 
@@ -410,7 +414,7 @@ public class Main{
                 ReturnDataCol[] res;
                 HashMap colloHash = new HashMap();
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     res = d.collocations(args[2]);
                     if ( res == null ){ 
                         System.out.println("The word \""+args[2]+"\" was not found."); 
@@ -427,7 +431,7 @@ public class Main{
                 ReturnDataCol[] res2;
                 HashMap resHash = new HashMap();
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     res2 = d.collocations(args[3]);
                     if ( res2 == null ){ 
                         System.out.println("The word \""+args[3]+"\" was not found."); 
@@ -459,7 +463,7 @@ public class Main{
             /////////////////////////////////////////////////
             else if( args[1].equals("-n") ){
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     int n = d.numberOfWords();
                     System.out.println(n);
                 } catch (IOException ex) {
@@ -471,7 +475,7 @@ public class Main{
             ////////////////////////////////////////////
             else if( args[1].equals("-wl") ){
                 try {
-                    DISCO d = new DISCO(args[0], false);
+                    DISCOLuceneIndex d = new DISCOLuceneIndex(args[0], false);
                     int i = d.wordFrequencyList(args[2]);
                     System.out.println(i+" of "+d.numberOfWords()+" words were written.");
                 } catch (IOException ex) {
@@ -491,10 +495,17 @@ public class Main{
                     printUsage();
                     return;
                 }
-                if ( args[1].equals("-ds") ) readFile(args[0], inputFile, 1);
-                else if( args[1].equals("-dbn") ) readFile(args[0], inputFile, 3);
-                else if( args[1].equals("-dbc") ) readFile(args[0], inputFile, 4);
-                else if( args[1].equals("-dr") ) readFile(args[0], inputFile, 5);
+                // and the simMeasure
+                DISCO.SimilarityMeasure simMeasure = DISCO.getSimilarityMeasure(args[3]);
+                if( simMeasure == null ){
+                    System.out.println("Error: unknown similarity measure "+args[3]
+                            +" - use COSINE or KOLB.");
+                    return;
+                }
+                if ( args[1].equals("-ds") ) readFile(args[0], inputFile, 1, simMeasure);
+                else if( args[1].equals("-dbn") ) readFile(args[0], inputFile, 3, simMeasure);
+                else if( args[1].equals("-dbc") ) readFile(args[0], inputFile, 4, simMeasure);
+                else if( args[1].equals("-dr") ) readFile(args[0], inputFile, 5, simMeasure);
             }
             ////////////////////////////////////////////////////////////////////
             // -ts: text similarity
@@ -511,13 +522,13 @@ public class Main{
                     printUsage();
                     return;
                 }
-                SimilarityMeasure measure = DISCO.getSimilarityMeasure(args[4]);
+                SimilarityMeasure measure = DISCOLuceneIndex.getSimilarityMeasure(args[4]);
                 if( measure == null ){
                     System.out.println("Error: unknown similarity measure: "+args[4]);
                     return;
                 }
                 // call method
-                DISCO disco = new DISCO(args[0], false);
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
                 TextSimilarity ts = new TextSimilarity();
                 float sim = ts.textSimilarity(args[2], args[3], disco, measure);
                 System.out.println(sim);
@@ -537,14 +548,14 @@ public class Main{
                     printUsage();
                     return;
                 }
-                SimilarityMeasure measure = DISCO.getSimilarityMeasure(args[4]);
+                SimilarityMeasure measure = DISCOLuceneIndex.getSimilarityMeasure(args[4]);
                 if( measure == null ){
                     System.out.println("Error: unknown similarity measure: "+args[4]);
                     return;
                 }
                 // call method
                 TextSimilarity ts = new TextSimilarity();
-                DISCO disco = new DISCO(args[0], false);
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
                 float sim = ts.directedTextSimilarity(args[2], args[3], disco, measure);
                 System.out.println(sim);
             }
@@ -560,7 +571,7 @@ public class Main{
                         return;
                     }
                     // call method
-                    DISCO disco = new DISCO(args[0], false);
+                    DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
                     ReturnDataBN res = Cluster.filterOutliers(disco, args[2], Integer.parseInt(args[3]));
                     if( res == null ){
                         System.out.println("The word \""+args[2]+"\" was not found in the index.");
@@ -592,7 +603,7 @@ public class Main{
                         inputSet[k++] = args[i];
                     }
                     // call method
-                    DISCO disco = new DISCO(args[0], false);
+                    DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
                     String[] res = Cluster.growSet(disco, inputSet);
                     for (String re : res) {
                         System.out.println(re);
@@ -620,7 +631,7 @@ public class Main{
                 // load word space into RAM
                 System.out.print("Loading word space...");
                 System.out.flush();
-                DISCO disco = new DISCO(args[0], true);
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], true);
                 System.out.println("OK");
                 System.out.flush();
                 // call method
@@ -628,9 +639,9 @@ public class Main{
                     Rank rank = new Rank();
                     ArrayList<WordAndRank> res;
                     if(args[1].equals("-rs")){
-                        res = rank.highestRanking(disco, inputSet, DISCO.WordspaceType.SIM);
+                        res = rank.highestRankingSim(disco, inputSet);
                     }else{
-                        res = rank.highestRanking(disco, inputSet, DISCO.WordspaceType.COL);
+                        res = rank.highestRankingCol(disco, inputSet);
                     }
                     int max = 100;
                     for(int k = 0; k < res.size(); k++){
@@ -650,7 +661,7 @@ public class Main{
                     // load word space into RAM
                     System.out.print("Loading word space...");
                     System.out.flush();
-                    DISCO disco = new DISCO(args[0], true);
+                    DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], true);
                     System.out.println("OK");
                     System.out.flush();
                     // call method
@@ -669,7 +680,7 @@ public class Main{
                 // load word space into RAM
                 System.out.print("Loading word space...");
                 System.out.flush();
-                DISCO disco = new DISCO(args[0], true);
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], true);
                 System.out.println("OK");
                 System.out.flush();
                 // read word list from file
@@ -694,6 +705,7 @@ public class Main{
             //                                  mult      cos
             //                                  combi
             //                                  dilat
+            //                                  extrem
             ////////////////////////////////////////////////////////////////////
             else if( args[1].equals("-cs") ){
                 if( args.length < 4 ){
@@ -711,6 +723,8 @@ public class Main{
                     compMethod = Compositionality.VectorCompositionMethod.COMBINED;
                 }else if( args[4].equalsIgnoreCase("dilat")){
                     compMethod = Compositionality.VectorCompositionMethod.DILATION;
+                }else if( args[4].equalsIgnoreCase("extrem")){
+                    compMethod = Compositionality.VectorCompositionMethod.EXTREMA;    
                 }else{
                     System.out.println("Error: Unknown composition method \""+
                             args[4]+"\".");
@@ -718,34 +732,76 @@ public class Main{
                     return;
                 }
                 // get similarity measure
-                DISCO.SimilarityMeasure simMeasure;
+                DISCOLuceneIndex.SimilarityMeasure simMeasure;
                 if( args[5].equalsIgnoreCase("kolb")){
-                    simMeasure = DISCO.SimilarityMeasure.KOLB;
+                    simMeasure = DISCOLuceneIndex.SimilarityMeasure.KOLB;
                 }else if( args[5].equalsIgnoreCase("cos")){
-                    simMeasure = DISCO.SimilarityMeasure.COSINE;
+                    simMeasure = DISCOLuceneIndex.SimilarityMeasure.COSINE;
                 }else{
                     System.out.println("Error: Unknown similarity measure \""+
                             args[5]+"\".");
                     printUsage();
                     return;
                 }
-                // open DISCO index
-                DISCO disco = new DISCO(args[0], false);
-                
-                Compositionality comp = new Compositionality();
-                float sim = comp.compositionalSemanticSimilarity(args[2], args[3],
+                // open DISCOLuceneIndex index
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
+                float sim = Compositionality.compositionalSemanticSimilarity(args[2], args[3],
                         compMethod, simMeasure, disco, Float.parseFloat(args[6]),
                         Float.parseFloat(args[7]), Float.parseFloat(args[8]), 
                         Float.parseFloat(args[9]));
                 System.out.println(sim);
             }
+            ////////////////////////////////////////////////////////////////////
+            // analogy
+            ////////////////////////////////////////////////////////////////////
+            else if( args[1].equals("-a") ){
+                if( args.length < 5 ){
+                    System.out.println("Error: Too few arguments.");
+                    printUsage();
+                    return;
+                }
+                // open DISCOLuceneIndex index
+                System.out.println("loading DISCO index into memory...");
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], true);
+                System.out.println("OK");
+                String w1 = args[2];
+                String w2 = args[3];
+                String w3 = args[4];
+                do{
+                    List<ReturnDataCol> words = Compositionality.solveAnalogy(w1,
+                            w2, w3, disco);
+                    if( words == null ){
+                        System.out.println("one of the input words was not found in the DISCO index.");
+                    }else if( words.isEmpty() ){
+                        System.out.println("No x solving the analogy was found.");
+                    }else{
+                        for(ReturnDataCol r : words){
+                            System.out.println(r.word+"\t"+r.value);
+                        }
+                    }
+                    // again?
+                    System.out.print("\nPlay again? (empty input to quit)\nw1: ");
+                    Scanner scan = new Scanner(System.in);
+                    w1 = scan.nextLine().trim();
+                    if( w1.isEmpty() ){
+                        break;
+                    }
+                    System.out.print("w2: ");
+                    w2 = scan.nextLine().trim();
+                    System.out.print("w3: ");
+                    w3 = scan.nextLine().trim();
+                }while( !w1.equals("") );
+            }
+            ////////////////////////////////////////////////////////////////////
+            // export wordlist
+            ////////////////////////////////////////////////////////////////////
             else if( args[1].equals("-wl") ){
                 if( args.length < 3 ){
                     System.out.println("Error: output file name required for option -wl");
                     printUsage();
                     return;
                 }
-                DISCO disco = new DISCO(args[0], false);
+                DISCOLuceneIndex disco = new DISCOLuceneIndex(args[0], false);
                 disco.wordFrequencyList(args[2]);
             }
             ////////////////////////////////////////////////////////////////////
